@@ -5,9 +5,11 @@
 # both implementations through identical scenarios.
 #
 # Usage:
-#   ./implementations/test.sh          # test both implementations
-#   ./implementations/test.sh python   # test only python
-#   ./implementations/test.sh bash     # test only bash
+#   ./implementations/test.sh              # test both implementations
+#   ./implementations/test.sh python       # test only python
+#   ./implementations/test.sh bash         # test only bash
+#   ./implementations/test.sh --ci         # CI mode: GitHub Actions annotations
+#   ./implementations/test.sh --ci python  # CI mode with filter
 
 set -euo pipefail
 
@@ -23,9 +25,16 @@ PASS=0
 FAIL=0
 SKIP=0
 CURRENT_IMPL=""
+CI_MODE=0
 
 pass() { PASS=$((PASS + 1)); echo "  PASS  $1"; }
-fail() { FAIL=$((FAIL + 1)); echo "  FAIL  $1"; }
+fail() {
+    FAIL=$((FAIL + 1))
+    echo "  FAIL  $1"
+    if (( CI_MODE )); then
+        echo "::error title=Test Failed::$1"
+    fi
+}
 skip() { SKIP=$((SKIP + 1)); echo "  SKIP  $1"; }
 
 # Run a command, capture exit code + stdout + stderr separately.
@@ -441,6 +450,7 @@ run_suite() {
     local cmd="$1" impl="$2"
     CURRENT_IMPL="$impl"
 
+    if (( CI_MODE )); then echo "::group::Testing: $impl"; fi
     echo ""
     echo "=============================="
     echo "  Testing: $impl"
@@ -460,12 +470,21 @@ run_suite() {
     test_unknown_directive_fails           "$cmd" "$impl"
     test_hook_create       "$cmd" "$impl"
     test_hook_remove       "$cmd" "$impl"
+
+    if (( CI_MODE )); then echo "::endgroup::"; fi
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────────
 
 main() {
-    local filter="${1:-all}"
+    # Parse --ci flag from any position; remaining args become the filter.
+    local filter="all"
+    for arg in "$@"; do
+        case "$arg" in
+            --ci) CI_MODE=1 ;;
+            *)    filter="$arg" ;;
+        esac
+    done
 
     echo "Setting up test fixtures..."
     setup_repo
@@ -479,7 +498,7 @@ main() {
             run_suite "$SH_CMD" "bash"
             ;;
         *)
-            echo "Usage: $0 [python|bash|all]" >&2
+            echo "Usage: $0 [--ci] [python|bash|all]" >&2
             exit 1
             ;;
     esac
@@ -488,6 +507,17 @@ main() {
     echo "=============================="
     echo "  Results: $PASS passed, $FAIL failed, $SKIP skipped"
     echo "=============================="
+
+    # Write GitHub Actions job summary when in CI mode.
+    if (( CI_MODE )) && [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+        cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+| Result | Count |
+|--------|-------|
+| Passed | $PASS |
+| Failed | $FAIL |
+| Skipped| $SKIP |
+EOF
+    fi
 
     if (( FAIL > 0 )); then
         exit 1
