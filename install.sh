@@ -106,34 +106,16 @@ fi
 SETTINGS_DIR=".claude"
 SETTINGS_FILE="${SETTINGS_DIR}/settings.json"
 
-# Build the hooks JSON with the correct command paths
-HOOKS_JSON=$(cat <<EOF
-{
-  "hooks": {
-    "WorktreeCreate": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${HOOK_CMD} create --hook"
-          }
-        ]
-      }
-    ],
-    "WorktreeRemove": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${HOOK_CMD} remove --hook"
-          }
-        ]
-      }
-    ]
-  }
-}
-EOF
-)
+# Build the hooks JSON with jq --arg for proper escaping
+HOOKS_JSON=$(jq -n \
+  --arg create_cmd "${HOOK_CMD} create --hook" \
+  --arg remove_cmd "${HOOK_CMD} remove --hook" \
+  '{
+    hooks: {
+      WorktreeCreate: [{ hooks: [{ type: "command", command: $create_cmd }] }],
+      WorktreeRemove: [{ hooks: [{ type: "command", command: $remove_cmd }] }]
+    }
+  }')
 
 mkdir -p "$SETTINGS_DIR"
 
