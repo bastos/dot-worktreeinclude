@@ -20,13 +20,26 @@ set -euo pipefail
 
 readonly MANIFEST_NAME=".worktreeinclude"
 
+# ── Logging state ────────────────────────────────────────────────────────────────
+
+QUIET="false"
+LOG_FILE="worktree.log"
+
 # ── Output helpers ───────────────────────────────────────────────────────────────
 
-_log()      { echo "  $1" >&2; }
-_log_ok()   { echo "  OK    $1" >&2; }
-_log_skip() { echo "  SKIP  $1" >&2; }
-_log_err()  { echo "  ERR   $1" >&2; }
-_log_dry()  { echo "  DRY   $1" >&2; }
+_write_log() {
+    local level="$1" message="$2"
+    local ts
+    ts=$(date -Iseconds 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')
+    echo "$ts [$level] $message" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+_log()      { _write_log "INFO" "$1"; [[ "$QUIET" == "true" ]] || echo "  $1" >&2; }
+_log_ok()   { _write_log "INFO" "OK    $1"; [[ "$QUIET" == "true" ]] || echo "  OK    $1" >&2; }
+_log_skip() { _write_log "INFO" "SKIP  $1"; [[ "$QUIET" == "true" ]] || echo "  SKIP  $1" >&2; }
+_log_warn() { _write_log "WARN" "$1"; [[ "$QUIET" == "true" ]] || echo "  WARN  $1" >&2; }
+_log_err()  { _write_log "ERR"  "$1"; [[ "$QUIET" == "true" ]] || echo "  ERR   $1" >&2; }
+_log_dry()  { _write_log "INFO" "DRY   $1"; [[ "$QUIET" == "true" ]] || echo "  DRY   $1" >&2; }
 
 # ── Git helpers ──────────────────────────────────────────────────────────────────
 
@@ -217,7 +230,7 @@ create_git_worktree() {
 # ── Commands ─────────────────────────────────────────────────────────────────────
 
 cmd_create() {
-    local source="$1" target="$2" force="${3:-false}" dry_run="${4:-false}"
+    local source="$1" target="$2" force="${3:-false}" dry_run="${4:-false}" pedantic="${5:-false}"
     local manifest_path="$source/$MANIFEST_NAME"
 
     if [[ ! -f "$manifest_path" ]]; then
@@ -247,11 +260,16 @@ cmd_create() {
             return 0  # continue processing
         fi
 
-        # Reject tracked paths.
+        # Tracked paths (spec section 8).
         if is_tracked "$entry_path" "$source"; then
-            _log_err "$label: path is tracked by Git — .worktreeinclude is for untracked/ignored paths only (spec section 8): '$entry_path'"
-            errors=$((errors + 1))
-            return 0
+            if [[ "$pedantic" == "true" ]]; then
+                _log_err "$label: path is tracked by Git — .worktreeinclude is for untracked/ignored paths only (spec section 8): '$entry_path'"
+                errors=$((errors + 1))
+                return 0
+            else
+                _log_warn "$label: path is tracked by Git — skipping (already in worktree via Git)"
+                return 0
+            fi
         fi
 
         # Missing source.
@@ -445,7 +463,7 @@ EOF
 
 usage_create() {
     cat >&2 <<'EOF'
-Usage: worktreeinclude.sh create [--source DIR] [--target DIR] [--force] [--dry-run] [--hook]
+Usage: worktreeinclude.sh create [--source DIR] [--target DIR] [--force] [--dry-run] [--pedantic] [--quiet] [--hook]
 
 Materialize .worktreeinclude entries into the target worktree.
 
@@ -454,6 +472,9 @@ Options:
   --target DIR  Target worktree root. Default: current worktree (auto-detected).
   --force       Overwrite existing destination paths.
   --dry-run     Show what would be done without making changes.
+  --pedantic    Fail on tracked paths (strict spec compliance). Default
+                behavior is to warn and skip tracked paths.
+  --quiet       Suppress stderr output. Logs are still written to worktree.log.
   --hook        Run as a Claude Code WorktreeCreate hook. Reads JSON from
                 stdin, creates the git worktree, materializes entries, and
                 prints the worktree path to stdout.
@@ -463,7 +484,7 @@ EOF
 
 usage_remove() {
     cat >&2 <<'EOF'
-Usage: worktreeinclude.sh remove [--source DIR] [--target DIR] [--dry-run] [--hook]
+Usage: worktreeinclude.sh remove [--source DIR] [--target DIR] [--dry-run] [--quiet] [--hook]
 
 Remove materialized entries from the target worktree.
 
@@ -471,6 +492,7 @@ Options:
   --source DIR  Source checkout root. Default: main worktree (auto-detected).
   --target DIR  Target worktree root. Default: current worktree (auto-detected).
   --dry-run     Show what would be done without making changes.
+  --quiet       Suppress stderr output. Logs are still written to worktree.log.
   --hook        Run as a Claude Code WorktreeRemove hook. Reads JSON from
                 stdin with worktree_path, and removes materialized entries.
   --help        Show this help message.
@@ -488,16 +510,18 @@ main() {
 
     case "$command" in
         create)
-            local source_arg="" target_arg="" force="false" dry_run="false" hook="false"
+            local source_arg="" target_arg="" force="false" dry_run="false" hook="false" pedantic="false"
             while (( $# > 0 )); do
                 case "$1" in
-                    --source)  source_arg="$2"; shift 2 ;;
-                    --target)  target_arg="$2"; shift 2 ;;
-                    --force)   force="true"; shift ;;
-                    --dry-run) dry_run="true"; shift ;;
-                    --hook)    hook="true"; shift ;;
-                    --help)    usage_create; return 0 ;;
-                    *)         _log_err "unknown option: $1"; usage_create; return 1 ;;
+                    --source)    source_arg="$2"; shift 2 ;;
+                    --target)    target_arg="$2"; shift 2 ;;
+                    --force)     force="true"; shift ;;
+                    --dry-run)   dry_run="true"; shift ;;
+                    --pedantic)  pedantic="true"; shift ;;
+                    --quiet)     QUIET="true"; shift ;;
+                    --hook)      hook="true"; shift ;;
+                    --help)      usage_create; return 0 ;;
+                    *)           _log_err "unknown option: $1"; usage_create; return 1 ;;
                 esac
             done
 
@@ -519,7 +543,7 @@ main() {
                 create_git_worktree "$name" "$target" "$source" || return 1
 
                 local rc=0
-                cmd_create "$source" "$target" "$force" "$dry_run" || rc=$?
+                cmd_create "$source" "$target" "$force" "$dry_run" "$pedantic" || rc=$?
 
                 if (( rc == 0 )); then
                     echo "$target"  # stdout — Claude Code reads this
@@ -528,7 +552,7 @@ main() {
             fi
 
             resolve_source_and_target "$source_arg" "$target_arg" || return 1
-            cmd_create "$SOURCE" "$TARGET" "$force" "$dry_run"
+            cmd_create "$SOURCE" "$TARGET" "$force" "$dry_run" "$pedantic"
             ;;
 
         remove)
@@ -538,6 +562,7 @@ main() {
                     --source)  source_arg="$2"; shift 2 ;;
                     --target)  target_arg="$2"; shift 2 ;;
                     --dry-run) dry_run="true"; shift ;;
+                    --quiet)   QUIET="true"; shift ;;
                     --hook)    hook="true"; shift ;;
                     --help)    usage_remove; return 0 ;;
                     *)         _log_err "unknown option: $1"; usage_remove; return 1 ;;
