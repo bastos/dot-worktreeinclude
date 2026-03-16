@@ -53,6 +53,11 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+if [ "$IMPL" = "python" ] && ! command -v python3 >/dev/null 2>&1; then
+  echo "Error: python3 is required for the Python implementation but not found." >&2
+  exit 1
+fi
+
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "Error: not inside a git repository. Run this from within a git repo." >&2
   exit 1
