@@ -126,7 +126,16 @@ if [ -f "$SETTINGS_FILE" ]; then
     echo "Skipping settings: ${SETTINGS_FILE} already has worktreeinclude hooks." >&2
   else
     echo "Updating ${SETTINGS_FILE} with worktreeinclude hooks..." >&2
-    MERGED=$(printf '%s\n' "$HOOKS_JSON" | jq -s '.[0] * .[1]' "$SETTINGS_FILE" -)
+    # Append to existing hook arrays instead of overwriting them
+    MERGED=$(printf '%s\n' "$HOOKS_JSON" | jq -s '
+      .[0] as $existing | .[1] as $new |
+      $existing * {
+        hooks: {
+          WorktreeCreate: (($existing.hooks.WorktreeCreate // []) + $new.hooks.WorktreeCreate),
+          WorktreeRemove: (($existing.hooks.WorktreeRemove // []) + $new.hooks.WorktreeRemove)
+        }
+      }
+    ' "$SETTINGS_FILE" -)
     printf '%s\n' "$MERGED" > "$SETTINGS_FILE"
     echo "Updated ${SETTINGS_FILE}" >&2
   fi
