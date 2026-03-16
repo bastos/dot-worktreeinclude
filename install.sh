@@ -127,7 +127,9 @@ if [ -f "$SETTINGS_FILE" ]; then
   else
     echo "Updating ${SETTINGS_FILE} with worktreeinclude hooks..." >&2
     # Append to existing hook arrays instead of overwriting them
-    MERGED=$(printf '%s\n' "$HOOKS_JSON" | jq -s '
+    # Write to temp file and mv for atomicity — avoids truncation on jq failure
+    TMPFILE=$(mktemp "${SETTINGS_FILE}.XXXXXX")
+    if ! printf '%s\n' "$HOOKS_JSON" | jq -s '
       .[0] as $existing | .[1] as $new |
       $existing * {
         hooks: {
@@ -135,13 +137,23 @@ if [ -f "$SETTINGS_FILE" ]; then
           WorktreeRemove: (($existing.hooks.WorktreeRemove // []) + $new.hooks.WorktreeRemove)
         }
       }
-    ' "$SETTINGS_FILE" -)
-    printf '%s\n' "$MERGED" > "$SETTINGS_FILE"
+    ' "$SETTINGS_FILE" - > "$TMPFILE"; then
+      rm -f "$TMPFILE"
+      echo "Error: failed to merge hooks into ${SETTINGS_FILE}" >&2
+      exit 1
+    fi
+    mv "$TMPFILE" "$SETTINGS_FILE"
     echo "Updated ${SETTINGS_FILE}" >&2
   fi
 else
   echo "Creating ${SETTINGS_FILE}..." >&2
-  printf '%s\n' "$HOOKS_JSON" | jq '.' > "$SETTINGS_FILE"
+  TMPFILE=$(mktemp "${SETTINGS_FILE}.XXXXXX")
+  if ! printf '%s\n' "$HOOKS_JSON" | jq '.' > "$TMPFILE"; then
+    rm -f "$TMPFILE"
+    echo "Error: failed to generate ${SETTINGS_FILE}" >&2
+    exit 1
+  fi
+  mv "$TMPFILE" "$SETTINGS_FILE"
   echo "Created ${SETTINGS_FILE}" >&2
 fi
 
