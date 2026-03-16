@@ -54,8 +54,13 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo "Warning: not inside a git repository. Continuing anyway." >&2
+  echo "Error: not inside a git repository. Run this from within a git repo." >&2
+  exit 1
 fi
+
+# Ensure all paths are relative to the repo root
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
 
 # --- Resolve filenames and URLs ---
 if [ "$IMPL" = "python" ]; then
