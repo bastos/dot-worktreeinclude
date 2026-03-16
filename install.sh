@@ -25,6 +25,13 @@ while [ $# -gt 0 ]; do
         exit 1
       fi
       DIR="$2"
+      # Validate: must be a safe relative path
+      case "$DIR" in
+        /*|*..*)
+          echo "Error: --dir must be a relative path without '..' components" >&2
+          exit 1
+          ;;
+      esac
       shift 2
       ;;
     -h|--help)
