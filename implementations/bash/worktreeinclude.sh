@@ -27,6 +27,18 @@ LOG_FILE="worktree.log"
 
 # ── Output helpers ───────────────────────────────────────────────────────────────
 
+_validate_log_file() {
+    # When --quiet is set, the log file is mandatory — otherwise there
+    # would be no output at all.  In non-quiet mode, log file failures
+    # are best-effort (stderr still works).
+    if [[ "$QUIET" == "true" ]]; then
+        if ! echo "" >> "$LOG_FILE" 2>/dev/null; then
+            echo "  ERR   --quiet requires a writable log file, but $LOG_FILE could not be opened" >&2
+            exit 1
+        fi
+    fi
+}
+
 _write_log() {
     local level="$1" message="$2"
     local ts
@@ -525,6 +537,8 @@ main() {
                 esac
             done
 
+            _validate_log_file
+
             if [[ "$hook" == "true" ]]; then
                 local hook_json
                 hook_json=$(cat) || { _log_err "failed to read hook input from stdin"; return 1; }
@@ -568,6 +582,8 @@ main() {
                     *)         _log_err "unknown option: $1"; usage_remove; return 1 ;;
                 esac
             done
+
+            _validate_log_file
 
             if [[ "$hook" == "true" ]]; then
                 local hook_json

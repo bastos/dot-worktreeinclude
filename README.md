@@ -136,19 +136,17 @@ If you already have a `.claude/settings.json` with other hooks configured, the i
 
 ## Gotchas
 
-### Tracked files in `.worktreeinclude` break Claude Code hooks
+### Tracked files in `.worktreeinclude` and Claude Code hooks
 
-If your `.worktreeinclude` lists a file that is tracked by Git (e.g. `config/database.yml` that you committed), the `WorktreeCreate` hook will fail and Claude Code will not get the worktree path back. The hook exits non-zero because the script forbids tracked files by default.
+If your `.worktreeinclude` lists a file that is tracked by Git (e.g. `config/database.yml` that you committed), the entry is redundant -- Git already populates tracked files in new worktrees.
 
-**Symptoms:** The create hook appears to hang or silently fails. The error in the logs is:
+**Before v0.3**, the implementations treated tracked paths as hard errors, which caused `WorktreeCreate` hooks to exit non-zero and left Claude Code without the worktree path. The symptom was the hook appearing to hang, with this in the logs:
 
 ```
 ERR   path is tracked by Git — .worktreeinclude is for untracked/ignored paths only
 ```
 
-**Fix:** Remove tracked files from `.worktreeinclude`. Git already populates them in new worktrees -- listing them in the manifest is redundant.
-
-**Resilient mode (default since v0.3):** Both implementations now **warn and skip** tracked paths instead of failing. This means a stale manifest with tracked files won't break your hooks. Use `--pedantic` to restore the strict behavior (fail on tracked paths).
+**Since v0.3 (current default)**, tracked paths are **warned and skipped** instead of failing. A stale manifest with tracked files won't break your hooks. Use `--pedantic` to restore the strict behavior if you want tracked paths to be treated as errors.
 
 ```sh
 # Default: warn + skip tracked paths

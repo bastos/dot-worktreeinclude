@@ -536,13 +536,25 @@ _log_fh: TextIO | None = None
 
 
 def _init_logging(quiet: bool = False) -> None:
-    """Initialize logging: set quiet mode and open worktree.log for appending."""
+    """Initialize logging: set quiet mode and open worktree.log for appending.
+
+    When quiet=True, the log file is mandatory — if it cannot be opened,
+    the script exits with an error because there would be no output at all.
+    When quiet=False, a log file failure is non-fatal (stderr still works).
+    """
     global _quiet, _log_fh
     _quiet = quiet
     try:
         _log_fh = open("worktree.log", "a", encoding="utf-8")
-    except OSError:
-        pass  # If we can't open the log file, just log to stderr.
+    except OSError as exc:
+        if quiet:
+            print(
+                f"  ERR   --quiet requires a writable log file, "
+                f"but worktree.log could not be opened: {exc}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # Non-quiet mode: log file is best-effort, stderr still works.
 
 
 def _write_log(level: str, message: str) -> None:

@@ -336,7 +336,11 @@ test_create_quiet() {
     echo "--- $impl: create --quiet ---"
     reset_target
 
-    run $cmd create --source "$REPO" --target "$TMPDIR_ROOT/target" --quiet
+    # Run from a dedicated temp directory so worktree.log lands there.
+    local quiet_cwd="$TMPDIR_ROOT/quiet_cwd_$$"
+    mkdir -p "$quiet_cwd"
+
+    run bash -c "cd '$quiet_cwd' && $cmd create --source '$REPO' --target '$TMPDIR_ROOT/target' --quiet"
     assert_exit 0 "$impl: create --quiet exits 0"
     if [[ -z "$STDERR" ]]; then
         pass "$impl: --quiet silences stderr"
@@ -345,6 +349,16 @@ test_create_quiet() {
         echo "        stderr: ${STDERR:0:200}"
     fi
     assert_file_exists "$TMPDIR_ROOT/target/.env.local" "$impl: --quiet still creates files"
+    assert_file_exists "$quiet_cwd/worktree.log" "$impl: --quiet writes to worktree.log"
+
+    # Verify the log file has content.
+    if [[ -s "$quiet_cwd/worktree.log" ]]; then
+        pass "$impl: worktree.log contains log lines"
+    else
+        fail "$impl: worktree.log is empty"
+    fi
+
+    rm -rf "$quiet_cwd"
 }
 
 test_create_invalid_path_fails() {
