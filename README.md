@@ -102,6 +102,38 @@ Large generated caches that are cheap to recreate are better handled by a bootst
 - Symlinks prefer relative targets, falling back to absolute when necessary
 - The manifest itself is the source of truth -- no sidecar metadata files
 
+## Install
+
+Run this from any git repository to set up `.worktreeinclude`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bastos/dot-worktreeinclude/main/install.sh | sh
+```
+
+This creates three things in your repo:
+
+1. **`scripts/worktreeinclude.sh`** -- the Bash reference implementation (no dependencies)
+2. **`.claude/settings.json`** -- `WorktreeCreate`/`WorktreeRemove` hooks so Claude Code automatically materializes files into new worktrees
+3. **`.worktreeinclude`** -- a starter template if you don't already have one
+
+The installer is idempotent -- running it again skips anything that already exists.
+
+### Options
+
+```sh
+# Use the Python implementation instead of Bash
+curl -fsSL ... | sh -s -- --python
+
+# Install the script to a different directory
+curl -fsSL ... | sh -s -- --dir bin
+```
+
+### Requirements
+
+`curl`, `jq`, and `git`. The `--python` variant also requires `python3`.
+
+If you already have a `.claude/settings.json` with other hooks configured, the installer appends to your existing hook arrays rather than replacing them.
+
 ## Implementations
 
 Reference implementations in Python and Bash are in [`implementations/`](implementations/). Both support full spec conformance (Base + Extra), integrate with Claude Code hooks and [agent-worktree](https://github.com/nekocode/agent-worktree), and have no third-party dependencies.
