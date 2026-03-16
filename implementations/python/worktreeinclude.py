@@ -43,6 +43,7 @@ Requires: Python 3.11+, Git
 from __future__ import annotations
 
 import argparse
+import datetime
 import enum
 import os
 import posixpath
@@ -52,6 +53,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 
 # ── Constants ───────────────────────────────────────────────────────────────────
@@ -529,30 +531,80 @@ def create_git_worktree(name: str, path: Path, cwd: Path) -> None:
 
 # ── Output helpers ──────────────────────────────────────────────────────────────
 
+_quiet: bool = False
+_log_fh: TextIO | None = None
+
+
+def _init_logging(quiet: bool = False) -> None:
+    """Initialize logging: set quiet mode and open worktree.log for appending.
+
+    When quiet=True, the log file is mandatory — if it cannot be opened,
+    the script exits with an error because there would be no output at all.
+    When quiet=False, a log file failure is non-fatal (stderr still works).
+    """
+    global _quiet, _log_fh
+    _quiet = quiet
+    try:
+        _log_fh = open("worktree.log", "a", encoding="utf-8")
+    except OSError as exc:
+        if quiet:
+            print(
+                f"  ERR   --quiet requires a writable log file, "
+                f"but worktree.log could not be opened: {exc}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # Non-quiet mode: log file is best-effort, stderr still works.
+
+
+def _write_log(level: str, message: str) -> None:
+    """Write a timestamped line to the log file."""
+    if _log_fh:
+        ts = datetime.datetime.now().isoformat(timespec="seconds")
+        _log_fh.write(f"{ts} [{level}] {message}\n")
+        _log_fh.flush()
+
 
 def _log(message: str) -> None:
-    """Print a status message to stderr."""
-    print(f"  {message}", file=sys.stderr)
+    """Print a status message to stderr and log file."""
+    _write_log("INFO", message)
+    if not _quiet:
+        print(f"  {message}", file=sys.stderr)
 
 
 def _log_ok(message: str) -> None:
-    """Print a success message to stderr."""
-    print(f"  OK    {message}", file=sys.stderr)
+    """Print a success message to stderr and log file."""
+    _write_log("INFO", f"OK    {message}")
+    if not _quiet:
+        print(f"  OK    {message}", file=sys.stderr)
 
 
 def _log_skip(message: str) -> None:
-    """Print a skip message to stderr."""
-    print(f"  SKIP  {message}", file=sys.stderr)
+    """Print a skip message to stderr and log file."""
+    _write_log("INFO", f"SKIP  {message}")
+    if not _quiet:
+        print(f"  SKIP  {message}", file=sys.stderr)
+
+
+def _log_warn(message: str) -> None:
+    """Print a warning message to stderr and log file."""
+    _write_log("WARN", message)
+    if not _quiet:
+        print(f"  WARN  {message}", file=sys.stderr)
 
 
 def _log_err(message: str) -> None:
-    """Print an error message to stderr."""
-    print(f"  ERR   {message}", file=sys.stderr)
+    """Print an error message to stderr and log file."""
+    _write_log("ERR", message)
+    if not _quiet:
+        print(f"  ERR   {message}", file=sys.stderr)
 
 
 def _log_dry(message: str) -> None:
-    """Print a dry-run message to stderr."""
-    print(f"  DRY   {message}", file=sys.stderr)
+    """Print a dry-run message to stderr and log file."""
+    _write_log("INFO", f"DRY   {message}")
+    if not _quiet:
+        print(f"  DRY   {message}", file=sys.stderr)
 
 
 # ── Commands ────────────────────────────────────────────────────────────────────
@@ -564,6 +616,7 @@ def cmd_create(
     *,
     force: bool = False,
     dry_run: bool = False,
+    pedantic: bool = False,
 ) -> int:
     """Materialize .worktreeinclude entries into the target worktree.
 
@@ -629,13 +682,20 @@ def cmd_create(
             errors.append(str(exc))
             continue
 
-        # Step 3b: reject tracked paths (spec section 8).
+        # Step 3b: tracked paths (spec section 8).
         try:
             check_not_tracked(entry.path, source)
         except ValidationError as exc:
-            _log_err(f"{label}: {exc}")
-            errors.append(str(exc))
-            continue
+            if pedantic:
+                _log_err(f"{label}: {exc}")
+                errors.append(str(exc))
+                continue
+            else:
+                _log_warn(
+                    f"{label}: {exc} — skipping "
+                    f"(already in worktree via Git)"
+                )
+                continue
 
         # Step 5a: missing source paths (spec section 10).
         if not source_path.exists():
@@ -877,6 +937,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show what would be done without making changes.",
     )
     create_parser.add_argument(
+        "--pedantic",
+        action="store_true",
+        help=(
+            "Fail on tracked paths (strict spec compliance). "
+            "Default behavior is to warn and skip tracked paths."
+        ),
+    )
+    create_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress stderr output. Logs are still written to worktree.log.",
+    )
+    create_parser.add_argument(
         "--hook",
         action="store_true",
         help=(
@@ -911,6 +984,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show what would be done without making changes.",
     )
     remove_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress stderr output. Logs are still written to worktree.log.",
+    )
+    remove_parser.add_argument(
         "--hook",
         action="store_true",
         help=(
@@ -932,6 +1010,9 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
+    # Initialize logging early so all output is captured.
+    _init_logging(quiet=args.quiet)
+
     # ── Hook mode ────────────────────────────────────────────────────────
     # When --hook is passed, the script acts as a Claude Code lifecycle
     # hook.  It reads JSON from stdin instead of using --source/--target,
@@ -949,7 +1030,11 @@ def main() -> int:
                 name = hook_input["name"]
                 target = source / ".worktrees" / name
                 create_git_worktree(name, target, source)
-                rc = cmd_create(source, target)
+                rc = cmd_create(
+                    source,
+                    target,
+                    pedantic=getattr(args, "pedantic", False),
+                )
                 if rc == 0:
                     print(target)  # stdout — Claude Code reads this
                 return rc
@@ -977,6 +1062,7 @@ def main() -> int:
                 target,
                 force=args.force,
                 dry_run=args.dry_run,
+                pedantic=args.pedantic,
             )
         case "remove":
             return cmd_remove(

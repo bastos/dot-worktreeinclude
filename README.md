@@ -134,6 +134,32 @@ curl -fsSL ... | sh -s -- --dir bin
 
 If you already have a `.claude/settings.json` with other hooks configured, the installer appends to your existing hook arrays rather than replacing them.
 
+## Gotchas
+
+### Tracked files in `.worktreeinclude` and Claude Code hooks
+
+If your `.worktreeinclude` lists a file that is tracked by Git (e.g. `config/database.yml` that you committed), the entry is redundant -- Git already populates tracked files in new worktrees.
+
+**Before v0.3**, the implementations treated tracked paths as hard errors, which caused `WorktreeCreate` hooks to exit non-zero and left Claude Code without the worktree path. The symptom was the hook appearing to hang, with this in the logs:
+
+```
+ERR   path is tracked by Git — .worktreeinclude is for untracked/ignored paths only
+```
+
+**Since v0.3 (current default)**, tracked paths are **warned and skipped** instead of failing. A stale manifest with tracked files won't break your hooks. Use `--pedantic` to restore the strict behavior if you want tracked paths to be treated as errors.
+
+```sh
+# Default: warn + skip tracked paths
+worktreeinclude.sh create --source /repo --target /worktree
+
+# Strict: fail on tracked paths (original behavior)
+worktreeinclude.sh create --source /repo --target /worktree --pedantic
+```
+
+### Logging
+
+Both implementations log to `worktree.log` in the current directory. Use `--quiet` to suppress stderr output while still writing to the log file. This is useful in hook mode where you only want stdout (the worktree path) and the log file for debugging.
+
 ## Implementations
 
 Reference implementations in Python and Bash are in [`implementations/`](implementations/). Both support full spec conformance (Base + Extra), integrate with Claude Code hooks and [agent-worktree](https://github.com/nekocode/agent-worktree), and have no third-party dependencies.
