@@ -29,7 +29,7 @@ Spec conformance (section 22):
     - Supports # @symlink and # @optional directives.
     - Applies directives only to the next valid path entry.
     - Fails for missing required paths.
-    - Fails for tracked paths.
+    - Warns and skips tracked paths by default; with --pedantic, treats them as errors.
     - Fails for existing destination conflicts by default.
     - Allows file and directory symlinks.
     - Prefers relative symlink targets; falls back to absolute.
