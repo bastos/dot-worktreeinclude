@@ -292,11 +292,11 @@ test_create_missing_required_fails() {
     echo "$saved" > "$REPO/.worktreeinclude"
 }
 
-test_create_tracked_path_fails() {
+test_create_tracked_path_warns() {
     local cmd="$1" impl="$2"
 
     echo ""
-    echo "--- $impl: create rejects tracked paths ---"
+    echo "--- $impl: create warns on tracked paths (default) ---"
     reset_target
 
     local saved
@@ -304,10 +304,61 @@ test_create_tracked_path_fails() {
     echo "tracked.txt" > "$REPO/.worktreeinclude"
 
     run $cmd create --source "$REPO" --target "$TMPDIR_ROOT/target"
-    assert_exit 1 "$impl: create exits 1 for tracked path"
+    assert_exit 0 "$impl: create exits 0 for tracked path (default: warn + skip)"
+    assert_stderr_contains "tracked by Git" "$impl: stderr mentions tracked path"
+    assert_stderr_contains "WARN" "$impl: stderr shows WARN for tracked path"
+
+    echo "$saved" > "$REPO/.worktreeinclude"
+}
+
+test_create_tracked_path_pedantic_fails() {
+    local cmd="$1" impl="$2"
+
+    echo ""
+    echo "--- $impl: create --pedantic rejects tracked paths ---"
+    reset_target
+
+    local saved
+    saved=$(cat "$REPO/.worktreeinclude")
+    echo "tracked.txt" > "$REPO/.worktreeinclude"
+
+    run $cmd create --source "$REPO" --target "$TMPDIR_ROOT/target" --pedantic
+    assert_exit 1 "$impl: create exits 1 for tracked path with --pedantic"
     assert_stderr_contains "tracked by Git" "$impl: stderr mentions tracked path"
 
     echo "$saved" > "$REPO/.worktreeinclude"
+}
+
+test_create_quiet() {
+    local cmd="$1" impl="$2"
+
+    echo ""
+    echo "--- $impl: create --quiet ---"
+    reset_target
+
+    # Run from a dedicated temp directory so worktree.log lands there.
+    local quiet_cwd="$TMPDIR_ROOT/quiet_cwd_$$"
+    mkdir -p "$quiet_cwd"
+
+    run bash -c "cd '$quiet_cwd' && $cmd create --source '$REPO' --target '$TMPDIR_ROOT/target' --quiet"
+    assert_exit 0 "$impl: create --quiet exits 0"
+    if [[ -z "$STDERR" ]]; then
+        pass "$impl: --quiet silences stderr"
+    else
+        fail "$impl: --quiet should silence stderr but got output"
+        echo "        stderr: ${STDERR:0:200}"
+    fi
+    assert_file_exists "$TMPDIR_ROOT/target/.env.local" "$impl: --quiet still creates files"
+    assert_file_exists "$quiet_cwd/worktree.log" "$impl: --quiet writes to worktree.log"
+
+    # Verify the log file has content.
+    if [[ -s "$quiet_cwd/worktree.log" ]]; then
+        pass "$impl: worktree.log contains log lines"
+    else
+        fail "$impl: worktree.log is empty"
+    fi
+
+    rm -rf "$quiet_cwd"
 }
 
 test_create_invalid_path_fails() {
@@ -462,7 +513,9 @@ run_suite() {
     test_create_existing_destination_fails "$cmd" "$impl"
     test_create_force      "$cmd" "$impl"
     test_create_missing_required_fails     "$cmd" "$impl"
-    test_create_tracked_path_fails         "$cmd" "$impl"
+    test_create_tracked_path_warns         "$cmd" "$impl"
+    test_create_tracked_path_pedantic_fails "$cmd" "$impl"
+    test_create_quiet                      "$cmd" "$impl"
     test_create_invalid_path_fails         "$cmd" "$impl"
     test_remove            "$cmd" "$impl"
     test_remove_dry_run    "$cmd" "$impl"
