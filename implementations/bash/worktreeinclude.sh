@@ -486,7 +486,7 @@ Options:
   --dry-run     Show what would be done without making changes.
   --pedantic    Fail on tracked paths (strict spec compliance). Default
                 behavior is to warn and skip tracked paths.
-  --quiet       Suppress stderr output. Logs are still written to worktree.log.
+  --quiet       Suppress non-error stderr log output. Usage/errors may still be printed. Logs are still written to worktree.log.
   --hook        Run as a Claude Code WorktreeCreate hook. Reads JSON from
                 stdin, creates the git worktree, materializes entries, and
                 prints the worktree path to stdout.
