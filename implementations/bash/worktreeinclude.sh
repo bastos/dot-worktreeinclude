@@ -32,7 +32,7 @@ _validate_log_file() {
     # would be no output at all.  In non-quiet mode, log file failures
     # are best-effort (stderr still works).
     if [[ "$QUIET" == "true" ]]; then
-        if ! echo "" >> "$LOG_FILE" 2>/dev/null; then
+        if ! : >> "$LOG_FILE" 2>/dev/null; then
             echo "  ERR   --quiet requires a writable log file, but $LOG_FILE could not be opened" >&2
             exit 1
         fi
