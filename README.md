@@ -146,13 +146,13 @@ If your `.worktreeinclude` lists a file that is tracked by Git (e.g. `config/dat
 ERR   path is tracked by Git — .worktreeinclude is for untracked/ignored paths only
 ```
 
-**Since v0.3 (current default)**, tracked paths are **warned and skipped** instead of failing. A stale manifest with tracked files won't break your hooks. Use `--pedantic` to restore the strict behavior if you want tracked paths to be treated as errors.
+**Since v0.3 (current default)**, tracked paths are **warned and skipped** instead of failing. A stale manifest with tracked files won't break your hooks. The earlier **Key rules** section describes the original strict behavior, which you can restore with `--pedantic` if you want tracked paths to be treated as errors.
 
 ```sh
 # Default: warn + skip tracked paths
 worktreeinclude.sh create --source /repo --target /worktree
 
-# Strict: fail on tracked paths (original behavior)
+# Strict (--pedantic): fail on tracked paths (matches "Key rules")
 worktreeinclude.sh create --source /repo --target /worktree --pedantic
 ```
 
