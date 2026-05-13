@@ -372,7 +372,7 @@ cmd_create() {
             || _log_err "parse error in $LOCAL_MANIFEST_NAME — continuing with already-processed entries"
     fi
 
-    _log "processed $entry_count entries from $manifest_path"
+    _log "processed $entry_count entries"
 
     if (( errors > 0 )); then
         _log_err "$errors error(s) during materialization"

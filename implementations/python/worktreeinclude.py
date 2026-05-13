@@ -681,10 +681,10 @@ def cmd_create(
             )
 
     if not entries:
-        _log(f"{MANIFEST_NAME} is empty — nothing to do")
+        _log("no entries to materialize — nothing to do")
         return 0
 
-    _log(f"processing {len(entries)} entries from {manifest_path}")
+    _log(f"processing {len(entries)} entries")
     _log(f"source: {source}")
     _log(f"target: {target}")
 
