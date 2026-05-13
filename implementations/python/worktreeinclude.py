@@ -61,6 +61,13 @@ from typing import TextIO
 MANIFEST_NAME = ".worktreeinclude"
 """The manifest file name, per spec section 5."""
 
+LOCAL_MANIFEST_NAME = ".worktreeinclude.local"
+"""The per-developer manifest extension (Extra), per spec section 17.3.
+
+Read after MANIFEST_NAME from the same source root; entries are appended
+to those from the main manifest. Absent file is not an error.
+"""
+
 
 # ── Data model ──────────────────────────────────────────────────────────────────
 
@@ -655,11 +662,29 @@ def cmd_create(
         _log_err(f"parse error in {MANIFEST_NAME}: {exc}")
         return 1
 
+    # Step 2b (spec section 17.3): append per-developer .worktreeinclude.local
+    # entries. A parse error here is logged but does not abort the main
+    # manifest's materialization.
+    local_manifest_path = source / LOCAL_MANIFEST_NAME
+    if local_manifest_path.is_file():
+        try:
+            local_entries = parse_manifest(local_manifest_path)
+            entries.extend(local_entries)
+            _log(
+                f"loaded {len(local_entries)} entries from "
+                f"{LOCAL_MANIFEST_NAME}"
+            )
+        except ParseError as exc:
+            _log_err(
+                f"parse error in {LOCAL_MANIFEST_NAME}: {exc} — "
+                f"ignoring local entries"
+            )
+
     if not entries:
-        _log(f"{MANIFEST_NAME} is empty — nothing to do")
+        _log("no entries to materialize — nothing to do")
         return 0
 
-    _log(f"processing {len(entries)} entries from {manifest_path}")
+    _log(f"processing {len(entries)} entries")
     _log(f"source: {source}")
     _log(f"target: {target}")
 
@@ -788,6 +813,18 @@ def cmd_remove(
     except ParseError as exc:
         _log_err(f"parse error in {MANIFEST_NAME}: {exc}")
         return 1
+
+    # Spec section 17.3: also process .worktreeinclude.local on removal so
+    # locally-materialized entries are cleaned up alongside the main set.
+    local_manifest_path = source / LOCAL_MANIFEST_NAME
+    if local_manifest_path.is_file():
+        try:
+            entries.extend(parse_manifest(local_manifest_path))
+        except ParseError as exc:
+            _log_err(
+                f"parse error in {LOCAL_MANIFEST_NAME}: {exc} — "
+                f"ignoring local entries"
+            )
 
     if not entries:
         return 0

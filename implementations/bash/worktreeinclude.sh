@@ -19,6 +19,7 @@
 set -euo pipefail
 
 readonly MANIFEST_NAME=".worktreeinclude"
+readonly LOCAL_MANIFEST_NAME=".worktreeinclude.local"
 
 # ── Logging state ────────────────────────────────────────────────────────────────
 
@@ -361,7 +362,17 @@ cmd_create() {
 
     parse_manifest "$manifest_path" _materialize_entry || return 1
 
-    _log "processed $entry_count entries from $manifest_path"
+    # Spec section 17.3: .worktreeinclude.local extends the project manifest
+    # with per-developer entries. A parse error here must not undo work
+    # already completed for .worktreeinclude.
+    local local_manifest_path="$source/$LOCAL_MANIFEST_NAME"
+    if [[ -f "$local_manifest_path" ]]; then
+        _log "reading $LOCAL_MANIFEST_NAME"
+        parse_manifest "$local_manifest_path" _materialize_entry \
+            || _log_err "parse error in $LOCAL_MANIFEST_NAME — continuing with already-processed entries"
+    fi
+
+    _log "processed $entry_count entries"
 
     if (( errors > 0 )); then
         _log_err "$errors error(s) during materialization"
@@ -417,6 +428,15 @@ cmd_remove() {
 
     _log "removing entries from $target"
     parse_manifest "$manifest_path" _remove_entry || return 1
+
+    # Spec section 17.3: also process .worktreeinclude.local on removal so
+    # locally-materialized entries are cleaned up alongside the main set.
+    local local_manifest_path="$source/$LOCAL_MANIFEST_NAME"
+    if [[ -f "$local_manifest_path" ]]; then
+        _log "reading $LOCAL_MANIFEST_NAME"
+        parse_manifest "$local_manifest_path" _remove_entry \
+            || _log_err "parse error in $LOCAL_MANIFEST_NAME — continuing with already-processed entries"
+    fi
 
     if (( errors > 0 )); then
         _log_err "$errors error(s) during removal"
