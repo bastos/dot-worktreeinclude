@@ -459,6 +459,60 @@ test_unknown_directive_fails() {
     echo "$saved" > "$REPO/.worktreeinclude"
 }
 
+test_local_manifest() {
+    local cmd="$1" impl="$2"
+
+    echo ""
+    echo "--- $impl: .worktreeinclude.local (spec 17.3) ---"
+
+    # 1. Present: local entries materialize alongside main entries.
+    reset_target
+    echo "personal-cert-data" > "$REPO/personal.crt"
+    cat > "$REPO/.worktreeinclude.local" <<'LOCAL'
+# @optional
+personal.crt
+LOCAL
+
+    run $cmd create --source "$REPO" --target "$TMPDIR_ROOT/target"
+    assert_exit 0 "$impl: create with local manifest exits 0"
+    assert_file_exists "$TMPDIR_ROOT/target/.env.local" "$impl: main manifest entry still materializes"
+    assert_file_exists "$TMPDIR_ROOT/target/personal.crt" "$impl: local manifest entry materializes"
+
+    # 2. Absent: no .worktreeinclude.local — no warning, no error.
+    reset_target
+    rm "$REPO/.worktreeinclude.local"
+
+    run $cmd create --source "$REPO" --target "$TMPDIR_ROOT/target"
+    assert_exit 0 "$impl: create without local manifest exits 0"
+    if echo "$STDERR" | grep -qi "worktreeinclude.local"; then
+        fail "$impl: stderr unexpectedly mentions .worktreeinclude.local when absent"
+    else
+        pass "$impl: stderr silent about .worktreeinclude.local when absent"
+    fi
+
+    # 3. Malformed local manifest: main still processes, local logs error.
+    reset_target
+    printf '# @bogus\npersonal.crt\n' > "$REPO/.worktreeinclude.local"
+
+    run $cmd create --source "$REPO" --target "$TMPDIR_ROOT/target"
+    assert_exit 0 "$impl: malformed local manifest does not abort main bootstrap"
+    assert_file_exists "$TMPDIR_ROOT/target/.env.local" "$impl: main entries materialized despite malformed local"
+    assert_stderr_contains "worktreeinclude.local" "$impl: stderr names the local manifest in the error"
+
+    # 4. Conflict: same path in both manifests → "destination already exists"
+    #    on the second pass (spec section 12).
+    reset_target
+    cat > "$REPO/.worktreeinclude.local" <<'LOCAL'
+.env.local
+LOCAL
+
+    run $cmd create --source "$REPO" --target "$TMPDIR_ROOT/target"
+    assert_exit 1 "$impl: conflicting path between manifests fails per spec 12"
+    assert_stderr_contains "destination already exists" "$impl: stderr mentions destination conflict"
+
+    rm -f "$REPO/.worktreeinclude.local" "$REPO/personal.crt"
+}
+
 test_hook_create() {
     local cmd="$1" impl="$2"
 
@@ -521,6 +575,7 @@ run_suite() {
     test_remove_dry_run    "$cmd" "$impl"
     test_no_manifest       "$cmd" "$impl"
     test_unknown_directive_fails           "$cmd" "$impl"
+    test_local_manifest    "$cmd" "$impl"
     test_hook_create       "$cmd" "$impl"
     test_hook_remove       "$cmd" "$impl"
 
