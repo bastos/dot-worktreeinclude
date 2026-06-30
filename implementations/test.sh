@@ -423,6 +423,51 @@ test_remove_dry_run() {
     assert_stderr_contains "DRY" "$impl: stderr reports DRY"
 }
 
+test_remove_invalid_path_fails() {
+    local cmd="$1" impl="$2"
+
+    echo ""
+    echo "--- $impl: remove rejects invalid paths ---"
+    reset_target
+
+    local saved victim
+    saved=$(cat "$REPO/.worktreeinclude")
+    victim="$TMPDIR_ROOT/victim.txt"
+    echo "do not delete" > "$victim"
+    printf '../victim.txt\n' > "$REPO/.worktreeinclude"
+
+    run $cmd remove --source "$REPO" --target "$TMPDIR_ROOT/target"
+    assert_exit 1 "$impl: remove exits 1 for path escaping target"
+    assert_file_exists "$victim" "$impl: remove does not delete outside target"
+    assert_stderr_contains "escapes" "$impl: stderr mentions escaping path"
+
+    echo "$saved" > "$REPO/.worktreeinclude"
+}
+
+test_create_symlink_path_is_data() {
+    local cmd="$1" impl="$2"
+
+    echo ""
+    echo "--- $impl: symlink entry path is treated as data ---"
+    reset_target
+
+    local saved pwned entry
+    saved=$(cat "$REPO/.worktreeinclude")
+    pwned="$TMPDIR_ROOT/pwned-by-manifest"
+    entry="x', '.')); __import__(\"pathlib\").Path(\"$pwned\").touch(); #"
+
+    mkdir -p "$(dirname "$REPO/$entry")"
+    echo "payload" > "$REPO/$entry"
+    printf '# @symlink\n%s\n' "$entry" > "$REPO/.worktreeinclude"
+
+    run $cmd create --source "$REPO" --target "$TMPDIR_ROOT/target"
+    assert_exit 0 "$impl: create exits 0 for quote-heavy symlink path"
+    assert_symlink "$TMPDIR_ROOT/target/$entry" "$impl: quote-heavy path is symlinked"
+    assert_file_not_exists "$pwned" "$impl: symlink path was not executed"
+
+    echo "$saved" > "$REPO/.worktreeinclude"
+}
+
 test_no_manifest() {
     local cmd="$1" impl="$2"
 
@@ -485,6 +530,17 @@ test_hook_create() {
     git -C "$REPO" branch -D "worktree/$hook_name" 2>/dev/null || true
 }
 
+test_hook_create_missing_name_fails() {
+    local cmd="$1" impl="$2"
+
+    echo ""
+    echo "--- $impl: create --hook rejects missing name ---"
+
+    run bash -c "cd '$REPO' && echo '{}' | $cmd create --hook"
+    assert_exit 1 "$impl: create --hook exits 1 without name"
+    assert_file_not_exists "$REPO/.worktrees/null" "$impl: create --hook does not create null worktree"
+}
+
 test_hook_remove() {
     local cmd="$1" impl="$2"
 
@@ -493,6 +549,26 @@ test_hook_remove() {
 
     run bash -c "cd '$REPO' && echo '{\"worktree_path\":\"/tmp/nonexistent\"}' | $cmd remove --hook"
     assert_exit 0 "$impl: remove --hook exits 0 (no manifest = nothing to do)"
+}
+
+test_hook_remove_dry_run() {
+    local cmd="$1" impl="$2"
+
+    echo ""
+    echo "--- $impl: remove --hook --dry-run ---"
+    reset_target
+
+    local saved
+    saved=$(cat "$REPO/.worktreeinclude")
+    printf 'hook-dry-run.txt\n' > "$REPO/.worktreeinclude"
+    echo "keep" > "$TMPDIR_ROOT/target/hook-dry-run.txt"
+
+    run bash -c "cd '$REPO' && echo '{\"worktree_path\":\"$TMPDIR_ROOT/target\"}' | $cmd remove --hook --dry-run"
+    assert_exit 0 "$impl: remove --hook --dry-run exits 0"
+    assert_file_exists "$TMPDIR_ROOT/target/hook-dry-run.txt" "$impl: remove --hook --dry-run preserves files"
+    assert_stderr_contains "DRY" "$impl: remove --hook --dry-run reports DRY"
+
+    echo "$saved" > "$REPO/.worktreeinclude"
 }
 
 # ── Run all tests for one implementation ─────────────────────────────────────────
@@ -519,10 +595,14 @@ run_suite() {
     test_create_invalid_path_fails         "$cmd" "$impl"
     test_remove            "$cmd" "$impl"
     test_remove_dry_run    "$cmd" "$impl"
+    test_remove_invalid_path_fails          "$cmd" "$impl"
+    test_create_symlink_path_is_data        "$cmd" "$impl"
     test_no_manifest       "$cmd" "$impl"
     test_unknown_directive_fails           "$cmd" "$impl"
     test_hook_create       "$cmd" "$impl"
+    test_hook_create_missing_name_fails     "$cmd" "$impl"
     test_hook_remove       "$cmd" "$impl"
+    test_hook_remove_dry_run                "$cmd" "$impl"
 
     if (( CI_MODE )); then echo "::endgroup::"; fi
 }

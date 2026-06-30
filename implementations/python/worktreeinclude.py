@@ -508,6 +508,19 @@ def _read_hook_input() -> dict:
     return json.loads(sys.stdin.read())
 
 
+def _hook_string(hook_input: object, key: str) -> str:
+    """Return a required non-empty string value from hook JSON."""
+    if not isinstance(hook_input, dict):
+        raise WorktreeIncludeError("hook input must be a JSON object")
+
+    value = hook_input.get(key)
+    if not isinstance(value, str) or not value:
+        raise WorktreeIncludeError(
+            f"missing or invalid {key!r} in hook input"
+        )
+    return value
+
+
 def create_git_worktree(name: str, path: Path, cwd: Path) -> None:
     """Create a git worktree at the given path.
 
@@ -795,13 +808,28 @@ def cmd_remove(
     _log(f"removing {len(entries)} entries from {target}")
 
     errors: list[str] = []
+    target_root = target.resolve(strict=False)
 
     for entry in entries:
+        try:
+            validate_path(entry.path)
+        except ValidationError as exc:
+            _log_err(f"{entry.path}: {exc}")
+            errors.append(str(exc))
+            continue
+
         dest_path = target / entry.path
 
         # Nothing to remove if the path is not present.
         if not dest_path.exists() and not dest_path.is_symlink():
             _log_skip(f"{entry.path} — not present")
+            continue
+
+        dest_parent = dest_path.parent.resolve(strict=False)
+        if dest_parent != target_root and target_root not in dest_parent.parents:
+            msg = "destination parent escapes target worktree"
+            _log_err(f"{entry.path}: {msg}")
+            errors.append(msg)
             continue
 
         if dry_run:
@@ -1027,12 +1055,15 @@ def main() -> int:
         try:
             if args.command == "create":
                 source = find_main_worktree()
-                name = hook_input["name"]
+                name = _hook_string(hook_input, "name")
+                validate_path(name)
                 target = source / ".worktrees" / name
                 create_git_worktree(name, target, source)
                 rc = cmd_create(
                     source,
                     target,
+                    force=getattr(args, "force", False),
+                    dry_run=getattr(args, "dry_run", False),
                     pedantic=getattr(args, "pedantic", False),
                 )
                 if rc == 0:
@@ -1040,13 +1071,14 @@ def main() -> int:
                 return rc
             elif args.command == "remove":
                 source = find_main_worktree()
-                target = Path(hook_input["worktree_path"])
-                return cmd_remove(source, target)
+                target = Path(_hook_string(hook_input, "worktree_path"))
+                return cmd_remove(
+                    source,
+                    target,
+                    dry_run=getattr(args, "dry_run", False),
+                )
         except WorktreeIncludeError as exc:
             _log_err(str(exc))
-            return 1
-        except KeyError as exc:
-            _log_err(f"missing key in hook input: {exc}")
             return 1
 
     try:

@@ -225,11 +225,25 @@ json_get() {
     local json="$1" key="$2"
 
     if command -v jq &>/dev/null; then
-        echo "$json" | jq -r ".$key"
+        echo "$json" | jq -er --arg key "$key" '.[$key] | select(type == "string" and length > 0)'
     else
         # Fallback: simple extraction for flat JSON.
         echo "$json" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
     fi
+}
+
+path_parent_within_target() {
+    local dest_path="$1" target="$2"
+    local dest_parent target_real parent_real
+
+    dest_parent=$(dirname "$dest_path")
+    target_real=$(cd "$target" && pwd -P) || return 1
+    parent_real=$(cd "$dest_parent" && pwd -P) || return 1
+
+    case "$parent_real/" in
+        "$target_real/"*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 create_git_worktree() {
@@ -341,8 +355,17 @@ cmd_create() {
             symlink)
                 # Prefer relative symlink targets.
                 local rel_target
-                rel_target=$(python3 -c "import os.path; print(os.path.relpath('$source_path', '$(dirname "$dest_path")'))" 2>/dev/null) \
-                    || rel_target=""
+                if rel_target=$(python3 - "$source_path" "$(dirname "$dest_path")" 2>/dev/null <<'PY'
+import os.path
+import sys
+
+print(os.path.relpath(sys.argv[1], sys.argv[2]))
+PY
+                ); then
+                    :
+                else
+                    rel_target=""
+                fi
 
                 if [[ -n "$rel_target" ]]; then
                     ln -s "$rel_target" "$dest_path" 2>/dev/null \
@@ -384,11 +407,23 @@ cmd_remove() {
 
     _remove_entry() {
         local entry_path="$1" mode="$2" optional="$3"
+
+        if ! validate_path "$entry_path"; then
+            errors=$((errors + 1))
+            return 0
+        fi
+
         local dest_path="$target/$entry_path"
 
         # Nothing to remove if not present.
         if [[ ! -e "$dest_path" ]] && [[ ! -L "$dest_path" ]]; then
             _log_skip "$entry_path — not present"
+            return 0
+        fi
+
+        if ! path_parent_within_target "$dest_path" "$target"; then
+            _log_err "$entry_path: destination parent escapes target worktree"
+            errors=$((errors + 1))
             return 0
         fi
 
@@ -544,11 +579,15 @@ main() {
                 hook_json=$(cat) || { _log_err "failed to read hook input from stdin"; return 1; }
 
                 local name
-                name=$(json_get "$hook_json" "name")
-                if [[ -z "$name" ]]; then
-                    _log_err "missing 'name' in hook input"
+                if ! name=$(json_get "$hook_json" "name"); then
+                    _log_err "missing or invalid 'name' in hook input"
                     return 1
                 fi
+                if [[ -z "$name" ]]; then
+                    _log_err "missing or invalid 'name' in hook input"
+                    return 1
+                fi
+                validate_path "$name" || return 1
 
                 local source
                 source=$(find_main_worktree) || return 1
@@ -590,9 +629,12 @@ main() {
                 hook_json=$(cat) || { _log_err "failed to read hook input from stdin"; return 1; }
 
                 local worktree_path
-                worktree_path=$(json_get "$hook_json" "worktree_path")
+                if ! worktree_path=$(json_get "$hook_json" "worktree_path"); then
+                    _log_err "missing or invalid 'worktree_path' in hook input"
+                    return 1
+                fi
                 if [[ -z "$worktree_path" ]]; then
-                    _log_err "missing 'worktree_path' in hook input"
+                    _log_err "missing or invalid 'worktree_path' in hook input"
                     return 1
                 fi
 
