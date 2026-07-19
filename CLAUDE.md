@@ -37,6 +37,7 @@ The `.worktreeinclude` manifest is a line-oriented file of literal repository-re
 
 - **Base**: Copy-only, comments ignored
 - **Extra**: Adds `# @symlink` (symlink instead of copy) and `# @optional` (skip if source missing) directives. Directives apply to the next non-comment line only. Unknown directives (`# @bogus`) must cause parse errors.
+- **Local manifest (Extra)**: Optional sibling `.worktreeinclude.local` read after the main manifest; its entries are appended and processed identically. For per-developer paths that shouldn't go in the tracked project manifest. Missing local manifest is a no-op. Parse error in local does not undo work from main. See spec section 17.3.
 
 ### Implementations
 

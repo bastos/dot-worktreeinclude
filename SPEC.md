@@ -394,13 +394,36 @@ for each line in file:
   pending_optional = false
 ```
 
+### 17.3 Local manifest extension (Extra)
+
+An Extra implementation SHOULD also read a per-developer manifest named:
+
+```
+.worktreeinclude.local
+```
+
+from the source checkout root, in addition to `.worktreeinclude`.
+
+The local manifest:
+
+- MUST follow the same format and parser rules as `.worktreeinclude`
+- MUST be read after `.worktreeinclude`, and its entries appended to those of the main manifest
+- MUST be processed through the same execution model (validation, materialization, failure rules)
+- MAY be absent -- a missing `.worktreeinclude.local` is not an error and does not produce a warning
+
+The intent is to let an individual developer materialize files that are local to their environment -- such as personal SSL certificates excluded by a global gitignore, machine-specific scratch directories, or one-off symlinks -- without touching the tracked project manifest. Repository maintainers SHOULD add `.worktreeinclude.local` to the project `.gitignore`.
+
+If the same path appears in both manifests, the standard rule for existing destinations (section 12) applies on the second materialization attempt. Implementations SHOULD treat this as a configuration error rather than silently overriding.
+
+A parse error in `.worktreeinclude.local` MUST NOT undo work already completed for `.worktreeinclude`. Implementations SHOULD log the error and continue with whatever entries from the main manifest have already been processed.
+
 ## 18. Execution model
 
 A conforming implementation SHOULD behave as follows:
 
 1. Determine the repository root of the source checkout.
 2. Create the target worktree.
-3. Read `.worktreeinclude` from the source checkout root, if present.
+3. Read `.worktreeinclude` from the source checkout root, if present. Extra implementations SHOULD then read `.worktreeinclude.local`, if present, and append its entries (section 17.3).
 4. Parse the manifest (base or extra parser).
 5. Validate each entry.
 6. For each entry, resolve the source path in the source checkout and the destination path in the target worktree.

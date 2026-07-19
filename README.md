@@ -48,6 +48,14 @@ This entry is symlinked if present, skipped if absent.
 
 A base-only implementation sees the directives as regular comments and copies everything. The same manifest works at both levels -- you just get more control with an Extra implementation.
 
+### Per-developer entries with `.worktreeinclude.local`
+
+An Extra implementation also reads an optional sibling manifest named `.worktreeinclude.local`. Same format, same rules; its entries are appended to those of `.worktreeinclude` and processed by the same execution model.
+
+This is the place for files that are personal to a specific developer's environment -- a local SSL cert pair excluded by a global gitignore, a one-off symlink to a scratch directory, machine-specific assets -- without touching the project's tracked manifest. Add `.worktreeinclude.local` to your `.gitignore`.
+
+A missing local manifest is a no-op (not a warning). See spec section 17.3.
+
 ## Quick examples
 
 **Rails**
